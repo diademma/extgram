@@ -1,26 +1,37 @@
 plugins {
     id 'com.android.application'
 }
+
 android {
     namespace 'com.extgram'
     compileSdk 34
+
     defaultConfig {
         applicationId "com.extgram"
         minSdk 24
         targetSdk 34
         versionCode 1
         versionName "1.0"
+        manifestPlaceholders = [appName: "ExteraGram Pro"]
     }
+
     buildTypes {
+        debug {
+            applicationIdSuffix ".owner"
+            manifestPlaceholders = [appName: "ExteraGram Owner"]
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            manifestPlaceholders = [appName: "ExteraGram Pro"]
         }
     }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
     }
+
     packagingOptions {
         exclude 'META-INF/NOTICE.md'
         exclude 'META-INF/LICENSE.md'
@@ -28,6 +39,7 @@ android {
         exclude 'META-INF/LICENSE'
     }
 }
+
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'com.sun.mail:android-mail:1.6.7'
