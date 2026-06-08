@@ -87,7 +87,7 @@ body {
 }
 .btn-launch:active { transform: scale(0.92); }
 
-/* ИСПРАВЛЕНО НАЛОЖЕНИЕ ТЕКСТА ПОД КНОПКОЙ */
+/* Исправлен зазор под кнопкой запуска */
 .btn-launch-label { font-size: 14px; color: #fff; font-weight: bold; text-align: center; margin-top: 15px; }
 
 .full-overlay {
@@ -341,7 +341,6 @@ function renderDirectoryTree(files) {
     for(let key in node.children) {
       let child = node.children[key];
       
-      // Игнорируем временные папки runtime и папки patches из общего списка проводника
       if(child.path === 'runtime' || child.path === 'patches') continue;
       
       if(child.isDirectory) {
@@ -433,7 +432,7 @@ function saveActivePatch() {
   const patchData = document.getElementById('patch-area').value.trim();
   if (patchData) {
     try {
-      JSON.parse(patchData); // Проверяем валидность JSON-структуры
+      JSON.parse(patchData); 
     } catch(e) {
       alert('Ошибка: Патч должен иметь строгий формат JSON!');
       return;
