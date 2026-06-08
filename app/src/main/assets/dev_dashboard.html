@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
-<title>ExteraGram Pro — IDE</title>
+<title>nan0gram — IDE</title>
 <style>
 :root {
   --bg-dark: #0d0716;
@@ -21,8 +21,6 @@ body {
   color: var(--text-main);
   display: flex; flex-direction: column;
 }
-
-/* Навигация сверху */
 .navbar {
   height: 50px; background: rgba(27, 20, 34, 0.9);
   border-bottom: 1px solid var(--bg-border);
@@ -35,12 +33,9 @@ body {
 .nav-tab.active, .nav-tab:hover {
   color: #fff; background: var(--bg-border);
 }
-
-/* Экраны */
 .screen { display: none; width: 100%; height: calc(100vh - 50px); position: relative; }
 .screen.active { display: flex; }
 
-/* Экран 1: Заглушка "Создать контейнер" */
 #screen-splash { flex-direction: column; justify-content: center; align-items: center; gap: 15px; }
 .splash-btn {
   width: 90px; height: 90px; border-radius: 20px; border: 3px solid #fff;
@@ -51,7 +46,6 @@ body {
 .splash-btn:active { transform: scale(0.9); }
 .splash-title { font-size: 20px; letter-spacing: 1px; text-transform: uppercase; color: #fff; }
 
-/* Экран 2/3: Рабочая область */
 #screen-workspace { padding: 20px; gap: 20px; justify-content: space-between; align-items: stretch; }
 .panel {
   background: var(--bg-card); border: 1px solid var(--bg-border);
@@ -71,7 +65,6 @@ body {
 .panel-body { flex: 1; overflow-y: auto; padding: 15px; display: flex; flex-direction: column; gap: 10px; }
 .panel-footer { padding: 15px; border-top: 1px solid var(--bg-border); font-size: 14px; color: var(--text-muted); }
 
-/* Элементы списков файлов */
 .file-item {
   display: flex; align-items: center; justify-content: space-between;
   background: rgba(255,255,255,0.04); padding: 8px 12px; border-radius: 10px;
@@ -82,11 +75,9 @@ body {
 .action-icon { cursor: pointer; opacity: 0.7; transition: opacity 0.2s; font-size: 16px; }
 .action-icon:hover { opacity: 1; }
 
-/* Дерево директорий */
 .tree-node { margin-left: 15px; margin-top: 5px; }
 .tree-row { display: flex; align-items: center; justify-content: space-between; padding: 4px 0; font-size: 14px; }
 
-/* Кнопки */
 .btn-select { color: var(--accent-purple); cursor: pointer; text-decoration: underline; font-size: 16px; }
 .btn-launch {
   width: 90px; height: 90px; border-radius: 50%; background: var(--accent-purple);
@@ -95,9 +86,10 @@ body {
   transition: transform 0.1s;
 }
 .btn-launch:active { transform: scale(0.92); }
-.btn-launch-label { font-size: 14px; color: #fff; font-weight: bold; text-align: center; margin-top: -30px; }
 
-/* Полноэкранный редактор / консоль / патчер */
+/* ИСПРАВЛЕНО НАЛОЖЕНИЕ ТЕКСТА ПОД КНОПКОЙ */
+.btn-launch-label { font-size: 14px; color: #fff; font-weight: bold; text-align: center; margin-top: 15px; }
+
 .full-overlay {
   display: none; flex-direction: column; padding: 20px; gap: 15px;
   background: var(--bg-dark); width: 100%; height: calc(100vh - 50px);
@@ -116,7 +108,6 @@ body {
 .btn-solid.green { background: #4caf50; }
 .btn-solid.red { background: #f44336; }
 
-/* Терминал логов */
 .log-terminal {
   flex: 1; background: #000; border-radius: 12px; border: 1px solid var(--bg-border);
   padding: 15px; font-family: monospace; font-size: 13px; color: #4caf50;
@@ -132,51 +123,41 @@ body {
   <div class="nav-tab" onclick="switchTab('patcher')">🔌 Патчинг и Деплой</div>
 </div>
 
-<!-- ЭКРАН 1: Сплеш-заглушка -->
 <div id="screen-splash" class="screen">
   <button class="splash-btn" onclick="openFileImport()">+</button>
   <div class="splash-title">Создать контейнеР</div>
 </div>
 
-<!-- ЭКРАН 2/3: Рабочая область -->
 <div id="screen-workspace" class="screen">
-  <!-- Левая панель импортированных файлов -->
   <div id="left-panel" class="panel">
     <div class="panel-header">
       <div class="panel-title">Импорт файлов</div>
     </div>
-    <div id="left-files-list" class="panel-body">
-      <!-- Динамический список -->
-    </div>
+    <div id="left-files-list" class="panel-body"></div>
     <div class="panel-footer" id="left-files-count">всего файлов: 0</div>
   </div>
 
-  <!-- Центр: Выбор файлов и Запуск -->
   <div class="center-area">
     <div class="btn-select" onclick="openFileImport()">выберите файлы +</div>
     <input type="file" id="systemFilePicker" style="display:none;" multiple onchange="handleFileSelect(event)"/>
-    <div style="display:flex; flex-direction:column; align-items:center; gap:10px;">
+    <div style="display:flex; flex-direction:column; align-items:center;">
       <button class="btn-launch" onclick="Android.launchMessenger()">+</button>
       <div class="btn-launch-label">Запустить контейнер</div>
     </div>
   </div>
 
-  <!-- Правая панель: Директория контейнера -->
   <div id="right-panel" class="panel">
     <div class="panel-header">
       <div class="panel-title">Директория контейнера</div>
       <span class="action-icon" onclick="createNewFolder()" title="Создать папку">📁➕</span>
     </div>
-    <div id="right-tree-list" class="panel-body">
-      <!-- Динамическое дерево файлов -->
-    </div>
+    <div id="right-tree-list" class="panel-body"></div>
     <div class="panel-footer" style="font-size:11px; line-height:1.4;">
       нажатие на + позволяет создать папку а 📋 закинуть туда скопированный файл с левого окна.
     </div>
   </div>
 </div>
 
-<!-- РЕДАКТОР КОДА (ПОЛНОЭКРАННЫЙ ОВЕРЛЕЙ) -->
 <div id="screen-editor" class="full-overlay">
   <div class="editor-header">
     <h3 id="editor-filename">filename.js</h3>
@@ -188,7 +169,6 @@ body {
   <textarea id="editor-code" class="editor-textarea" spellcheck="false"></textarea>
 </div>
 
-<!-- ТАБ ЛОГОВ -->
 <div id="screen-logs" class="full-overlay">
   <div class="editor-header">
     <h3>Логи отладки</h3>
@@ -200,18 +180,22 @@ body {
   <div id="logTerminal" class="log-terminal"></div>
 </div>
 
-<!-- ТАБ ПАТЧИНГА -->
 <div id="screen-patcher" class="full-overlay">
   <div class="editor-header">
-    <h3>Быстрый патч логики</h3>
-    <button class="btn-solid green" onclick="triggerGithubBuild()">🚀 Собрать APK на GitHub</button>
+    <h3>Локальная система патчей</h3>
+    <div style="display:flex; gap:10px;">
+      <button class="btn-solid green" onclick="saveActivePatch()">Применить патчи</button>
+    </div>
   </div>
-  <textarea id="patch-area" class="editor-textarea" placeholder="Вставьте сюда JSON-патч или скрипт исправления..."></textarea>
+  <p style="font-size:13px; color:var(--text-muted);">
+    Оригиналы ваших файлов не изменятся! Контейнер применит этот JSON-патч к временным копиям файлов в рантайме.
+  </p>
+  <textarea id="patch-area" class="editor-textarea" placeholder='[\n  {\n    "file": "index.html",\n    "find": "Старый текст",\n    "replace": "Новый текст"\n  }\n]' spellcheck="false"></textarea>
 </div>
 
 <script>
-let importedFiles = []; // Локальный массив {name, content}
-let copiedFile = null;  // Сюда сохраняется скопированный файл для вставки в папки
+let importedFiles = []; 
+let copiedFile = null;  
 
 function switchTab(tab) {
   document.querySelectorAll('.nav-tab').forEach(el => el.classList.remove('active'));
@@ -227,6 +211,7 @@ function switchTab(tab) {
   } else if(tab === 'patcher') {
     document.querySelector('.nav-tab:nth-child(3)').classList.add('active');
     document.getElementById('screen-patcher').classList.add('active');
+    loadActivePatch();
   }
 }
 
@@ -244,7 +229,6 @@ function handleFileSelect(e) {
     const reader = new FileReader();
     reader.onload = function(evt) {
       importedFiles.push({ name: file.name, content: evt.target.result });
-      // Автоматически пишем в корень контейнера при первичном выборе
       Android.saveFile(file.name, evt.target.result);
       loaded++;
       if(loaded === files.length) {
@@ -267,7 +251,6 @@ function updateUI() {
   document.getElementById('screen-splash').classList.remove('active');
   document.getElementById('screen-workspace').classList.add('active');
 
-  // Рендер левого окна (импортированные файлы)
   const leftList = document.getElementById('left-files-list');
   leftList.innerHTML = '';
   importedFiles.forEach((file, idx) => {
@@ -284,13 +267,12 @@ function updateUI() {
   });
   document.getElementById('left-files-count').textContent = 'всего файлов: ' + importedFiles.length;
 
-  // Рендер правого окна (Директория контейнера в виде дерева)
   renderDirectoryTree(treeJSON);
 }
 
 function copyFileToBuffer(idx) {
   copiedFile = importedFiles[idx];
-  alert('Файл ' + copiedFile.name + ' скопирован. Теперь вы можете нажать 📋 рядом с любой папкой справа, чтобы вставить его туда!');
+  alert('Файл ' + copiedFile.name + ' скопирован в буфер! Нажмите значок 📋 рядом с папкой справа для вставки.');
 }
 
 function deleteImported(idx) {
@@ -316,7 +298,7 @@ function createFolderInside(parentPath) {
 
 function pasteFileInto(folderPath) {
   if(!copiedFile) {
-    alert('Сначала скопируйте файл из левого окна с помощью иконки 📋!');
+    alert('Сначала скопируйте файл слева с помощью 📋!');
     return;
   }
   const targetPath = folderPath + '/' + copiedFile.name;
@@ -331,12 +313,10 @@ function deleteServerPath(path) {
   }
 }
 
-// Построение и отрисовка дерева файлов
 function renderDirectoryTree(files) {
   const rightList = document.getElementById('right-tree-list');
   rightList.innerHTML = '';
 
-  // Группируем файлы в дерево
   let tree = { name: "Root", isDirectory: true, children: {}, path: "" };
   files.forEach(f => {
     let parts = f.path.split('/');
@@ -360,15 +340,19 @@ function renderDirectoryTree(files) {
     let html = '';
     for(let key in node.children) {
       let child = node.children[key];
+      
+      // Игнорируем временные папки runtime и папки patches из общего списка проводника
+      if(child.path === 'runtime' || child.path === 'patches') continue;
+      
       if(child.isDirectory) {
         html += `
           <div class="tree-node">
             <div class="tree-row" style="font-weight:bold; color:#a773d1;">
               <span>📁 ${child.name}</span>
               <div class="file-actions">
-                <span class="action-icon" onclick="pasteFileInto('${child.path}')" title="Вставить скопированный файл">📋</span>
+                <span class="action-icon" onclick="pasteFileInto('${child.path}')" title="Вставить">📋</span>
                 <span class="action-icon" onclick="createFolderInside('${child.path}')" title="Создать подпапку">➕</span>
-                <span class="action-icon" onclick="deleteServerPath('${child.path}')" title="Удалить папку">❌</span>
+                <span class="action-icon" onclick="deleteServerPath('${child.path}')" title="Удалить">❌</span>
               </div>
             </div>
             ${buildHTML(child)}
@@ -388,7 +372,7 @@ function renderDirectoryTree(files) {
     return html;
   }
 
-  rightList.innerHTML = buildHTML(tree) || '<div style="color:var(--text-muted);font-size:13px;">Папка пуста. Импортируйте index.html</div>';
+  rightList.innerHTML = buildHTML(tree) || '<div style="color:var(--text-muted);font-size:13px;">Папка пуста.</div>';
 }
 
 /* --- ВСТРОЕННЫЙ РЕДАКТОР КОДА --- */
@@ -436,14 +420,29 @@ function copyLogs() {
   temp.select();
   document.execCommand('copy');
   document.body.removeChild(temp);
-  alert('Логи успешно скопированы в буфер обмена!');
+  alert('Логи успешно скопированы!');
 }
 
-function triggerGithubBuild() {
-  alert('Инициирован деплой на GitHub Actions. Новая сборка APK начнется через несколько секунд!');
+/* --- СИСТЕМА ЛОКАЛЬНЫХ ПАТЧЕЙ --- */
+function loadActivePatch() {
+  const patchData = Android.readFile("patches/patches.json");
+  document.getElementById('patch-area').value = patchData || '';
 }
 
-// Запуск при старте
+function saveActivePatch() {
+  const patchData = document.getElementById('patch-area').value.trim();
+  if (patchData) {
+    try {
+      JSON.parse(patchData); // Проверяем валидность JSON-структуры
+    } catch(e) {
+      alert('Ошибка: Патч должен иметь строгий формат JSON!');
+      return;
+    }
+  }
+  Android.saveFile("patches/patches.json", patchData);
+  alert('Патчи успешно применены! При следующем запуске контейнера они вступят в силу.');
+}
+
 updateUI();
 </script>
 </body>
