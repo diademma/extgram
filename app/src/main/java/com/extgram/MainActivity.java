@@ -52,6 +52,7 @@ import java.util.List;
 import java.util.Properties;
 
 import javax.mail.Authenticator;
+import javax.mail.Flags;
 import javax.mail.Folder;
 import javax.mail.Message;
 import javax.mail.PasswordAuthentication;
@@ -120,13 +121,11 @@ public class MainActivity extends Activity {
         ));
         mainLayout.addView(webView);
 
-        // Инициализируем безопасный загрузчик ресурсов (HTTPS мок)
         assetLoader = new WebViewAssetLoader.Builder()
             .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this))
             .addPathHandler("/files/", new WebViewAssetLoader.InternalStoragePathHandler(this, getFilesDir()))
             .build();
 
-        // Свободно перетаскиваемая (плавающая) кнопка шестеренки
         if (BuildConfig.DEBUG) {
             Button devGearBtn = new Button(this);
             devGearBtn.setText("⚙");
@@ -135,10 +134,9 @@ public class MainActivity extends Activity {
             
             GradientDrawable shape = new GradientDrawable();
             shape.setShape(GradientDrawable.OVAL);
-            shape.setColor(Color.parseColor("#90a773d1")); // Полупрозрачный фиолетовый
+            shape.setColor(Color.parseColor("#90a773d1"));
             devGearBtn.setBackground(shape);
 
-            // Начальное расположение в правом нижнем углу
             int screenWidth = getResources().getDisplayMetrics().widthPixels;
             int screenHeight = getResources().getDisplayMetrics().heightPixels;
 
@@ -148,7 +146,6 @@ public class MainActivity extends Activity {
             btnParams.topMargin = screenHeight - 240;
             mainLayout.addView(devGearBtn, btnParams);
 
-            // Слушатель для перетаскивания (Drag & Drop)
             devGearBtn.setOnTouchListener(new View.OnTouchListener() {
                 private int initialX;
                 private int initialY;
@@ -178,7 +175,6 @@ public class MainActivity extends Activity {
                                 params.leftMargin = (int) (initialX + dx);
                                 params.topMargin = (int) (initialY + dy);
                                 
-                                // Ограничение движения границами экрана
                                 params.leftMargin = Math.max(0, Math.min(params.leftMargin, getResources().getDisplayMetrics().widthPixels - devGearBtn.getWidth()));
                                 params.topMargin = Math.max(0, Math.min(params.topMargin, getResources().getDisplayMetrics().heightPixels - devGearBtn.getHeight()));
                                 
@@ -216,7 +212,6 @@ public class MainActivity extends Activity {
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
-                // Перехватываем локальные запросы и отдаем их через безопасную схему HTTPS
                 return assetLoader.shouldInterceptRequest(request.getUrl());
             }
 
@@ -314,13 +309,10 @@ public class MainActivity extends Activity {
         if (systemLogs.size() > 150) systemLogs.remove(0);
     }
 
-    /* ══════════════════════════════════════════════════════════════
-       СТИЛЬНАЯ АДМИН-ПАНЕЛЬ (Кастомный LinearLayout в стиле мессенджера)
-       ══════════════════════════════════════════════════════════════ */
     private void showAdminMenu() {
         LinearLayout container = new LinearLayout(this);
         container.setOrientation(LinearLayout.VERTICAL);
-        container.setBackgroundColor(Color.parseColor("#1c1524")); // Фирменный цвет шапки чата
+        container.setBackgroundColor(Color.parseColor("#1c1524"));
         container.setPadding(40, 50, 40, 50);
 
         TextView title = new TextView(this);
@@ -353,7 +345,7 @@ public class MainActivity extends Activity {
             btn.setPadding(40, 20, 40, 20);
             
             GradientDrawable btnShape = new GradientDrawable();
-            btnShape.setColor(Color.parseColor("#2d2238")); // Цвет пузырей сообщений
+            btnShape.setColor(Color.parseColor("#2d2238"));
             btnShape.setCornerRadius(16);
             btn.setBackground(btnShape);
 
@@ -756,7 +748,6 @@ public class MainActivity extends Activity {
         webView.post(new Runnable() {
             @Override
             public void run() {
-                // Безопасный вызов drainQueue с проверкой типа функции, предотвращающий падение
                 if (event.equals("extgram_drain")) {
                     webView.evaluateJavascript(
                         "window.ExteraGram && typeof window.ExteraGram.drainQueue === 'function' && window.ExteraGram.drainQueue()",
