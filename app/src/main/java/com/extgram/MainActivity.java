@@ -5,9 +5,9 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
-import android.content.DialogInterface;
 import android.content.Intent;
 import android.graphics.Color;
+import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Build;
@@ -16,6 +16,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
 import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
 import android.webkit.ConsoleMessage;
@@ -23,12 +24,18 @@ import android.webkit.JavascriptInterface;
 import android.webkit.PermissionRequest;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.FrameLayout;
+import android.widget.LinearLayout;
+import android.widget.TextView;
 import android.widget.Toast;
+
+import androidx.webkit.WebViewAssetLoader;
 
 import org.json.JSONObject;
 
@@ -45,7 +52,6 @@ import java.util.List;
 import java.util.Properties;
 
 import javax.mail.Authenticator;
-import javax.mail.Flags;
 import javax.mail.Folder;
 import javax.mail.Message;
 import javax.mail.PasswordAuthentication;
@@ -66,6 +72,7 @@ public class MainActivity extends Activity {
     private volatile String subjectPrefix  = "[TG_DATA]";
 
     private WebView  webView;
+    private FrameLayout mainLayout;
     private Handler  pollingHandler;
     private Runnable pollingRunnable;
     private volatile boolean pollingActive = false;
@@ -76,7 +83,9 @@ public class MainActivity extends Activity {
     private ValueCallback<Uri[]> uploadMessage;
     private final static int FILECHOOSER_RESULTCODE = 1;
 
-    @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
+    private WebViewAssetLoader assetLoader;
+
+    @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface", "ClickableViewAccessibility"})
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -92,15 +101,13 @@ public class MainActivity extends Activity {
             | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
         );
 
-        // Запрос прав на микрофон на старте (для голосовых сообщений)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
                 requestPermissions(new String[]{android.Manifest.permission.RECORD_AUDIO}, 2);
             }
         }
 
-        // Используем FrameLayout, чтобы наложить кнопку поверх WebView
-        FrameLayout mainLayout = new FrameLayout(this);
+        mainLayout = new FrameLayout(this);
         mainLayout.setLayoutParams(new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
             FrameLayout.LayoutParams.MATCH_PARENT
@@ -113,27 +120,81 @@ public class MainActivity extends Activity {
         ));
         mainLayout.addView(webView);
 
-        // Навешиваем маленькую круглую фиолетовую кнопку настроек (видна только в Debug/Owner билде)
+        // Инициализируем безопасный загрузчик ресурсов (HTTPS мок)
+        assetLoader = new WebViewAssetLoader.Builder()
+            .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this))
+            .addPathHandler("/files/", new WebViewAssetLoader.InternalStoragePathHandler(this, getFilesDir()))
+            .build();
+
+        // Свободно перетаскиваемая (плавающая) кнопка шестеренки
         if (BuildConfig.DEBUG) {
             Button devGearBtn = new Button(this);
             devGearBtn.setText("⚙");
             devGearBtn.setTextColor(Color.WHITE);
-            devGearBtn.setTextSize(20);
+            devGearBtn.setTextSize(22);
             
-            // Красивый круглый фон для кнопки
             GradientDrawable shape = new GradientDrawable();
             shape.setShape(GradientDrawable.OVAL);
-            shape.setColor(Color.parseColor("#80a773d1")); // Полупрозрачный фиолетовый
+            shape.setColor(Color.parseColor("#90a773d1")); // Полупрозрачный фиолетовый
             devGearBtn.setBackground(shape);
 
-            FrameLayout.LayoutParams btnParams = new FrameLayout.LayoutParams(
-                110, 110, // Размер кнопки на экране
-                Gravity.BOTTOM | Gravity.END
-            );
-            btnParams.setMargins(0, 0, 30, 180); // Смещение, чтобы не мешала кнопке отправки мессенджера
+            // Начальное расположение в правом нижнем углу
+            int screenWidth = getResources().getDisplayMetrics().widthPixels;
+            int screenHeight = getResources().getDisplayMetrics().heightPixels;
+
+            FrameLayout.LayoutParams btnParams = new FrameLayout.LayoutParams(110, 110);
+            btnParams.gravity = Gravity.TOP | Gravity.START;
+            btnParams.leftMargin = screenWidth - 140;
+            btnParams.topMargin = screenHeight - 240;
             mainLayout.addView(devGearBtn, btnParams);
 
-            devGearBtn.setOnClickListener(v -> showAdminMenu());
+            // Слушатель для перетаскивания (Drag & Drop)
+            devGearBtn.setOnTouchListener(new View.OnTouchListener() {
+                private int initialX;
+                private int initialY;
+                private float initialTouchX;
+                private float initialTouchY;
+                private boolean isDragging = false;
+
+                @Override
+                public boolean onTouch(View v, MotionEvent event) {
+                    FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) devGearBtn.getLayoutParams();
+                    switch (event.getAction()) {
+                        case MotionEvent.ACTION_DOWN:
+                            initialX = params.leftMargin;
+                            initialY = params.topMargin;
+                            initialTouchX = event.getRawX();
+                            initialTouchY = event.getRawY();
+                            isDragging = false;
+                            devGearBtn.setAlpha(1.0f);
+                            return true;
+                        case MotionEvent.ACTION_MOVE:
+                            float dx = event.getRawX() - initialTouchX;
+                            float dy = event.getRawY() - initialTouchY;
+                            if (Math.abs(dx) > 15 || Math.abs(dy) > 15) {
+                                isDragging = true;
+                            }
+                            if (isDragging) {
+                                params.leftMargin = (int) (initialX + dx);
+                                params.topMargin = (int) (initialY + dy);
+                                
+                                // Ограничение движения границами экрана
+                                params.leftMargin = Math.max(0, Math.min(params.leftMargin, getResources().getDisplayMetrics().widthPixels - devGearBtn.getWidth()));
+                                params.topMargin = Math.max(0, Math.min(params.topMargin, getResources().getDisplayMetrics().heightPixels - devGearBtn.getHeight()));
+                                
+                                devGearBtn.setLayoutParams(params);
+                            }
+                            return true;
+                        case MotionEvent.ACTION_UP:
+                            devGearBtn.setAlpha(0.7f);
+                            if (!isDragging) {
+                                showAdminMenu();
+                            }
+                            return true;
+                    }
+                    return false;
+                }
+            });
         }
 
         setContentView(mainLayout);
@@ -154,6 +215,12 @@ public class MainActivity extends Activity {
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
+            public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                // Перехватываем локальные запросы и отдаем их через безопасную схему HTTPS
+                return assetLoader.shouldInterceptRequest(request.getUrl());
+            }
+
+            @Override
             public boolean shouldOverrideUrlLoading(WebView view, String url) {
                 view.loadUrl(url);
                 return true;
@@ -170,7 +237,6 @@ public class MainActivity extends Activity {
                 return true;
             }
 
-            // РАЗРЕШАЕМ ДОСТУП К МИКРОФОНУ ВНУТРИ WEBVIEW
             @Override
             public void onPermissionRequest(final PermissionRequest request) {
                 runOnUiThread(() -> {
@@ -204,7 +270,7 @@ public class MainActivity extends Activity {
 
         if (BuildConfig.DEBUG) {
             if (localHtmlFile.exists()) {
-                webView.loadUrl("file://" + localHtmlFile.getAbsolutePath());
+                webView.loadUrl("https://appassets.androidplatform.net/files/index.html");
             } else {
                 loadDevDashboard();
             }
@@ -212,7 +278,7 @@ public class MainActivity extends Activity {
             if (!localHtmlFile.exists()) {
                 unpackFactoryHTML();
             }
-            webView.loadUrl("file://" + localHtmlFile.getAbsolutePath());
+            webView.loadUrl("https://appassets.androidplatform.net/files/index.html");
         }
 
         pollingHandler = new Handler(Looper.getMainLooper());
@@ -249,36 +315,68 @@ public class MainActivity extends Activity {
     }
 
     /* ══════════════════════════════════════════════════════════════
-       НАВЕРХНЯЯ АДМИН-ПАНЕЛЬ (Вызывается по клику на шестеренку)
+       СТИЛЬНАЯ АДМИН-ПАНЕЛЬ (Кастомный LinearLayout в стиле мессенджера)
        ══════════════════════════════════════════════════════════════ */
     private void showAdminMenu() {
-        String[] options = {
-            "Посмотреть дебаг-логи", 
-            "Проводник файлов контейнера", 
-            "Сбросить скрипты (Safe Mode)", 
-            "Перезагрузить страницу"
+        LinearLayout container = new LinearLayout(this);
+        container.setOrientation(LinearLayout.VERTICAL);
+        container.setBackgroundColor(Color.parseColor("#1c1524")); // Фирменный цвет шапки чата
+        container.setPadding(40, 50, 40, 50);
+
+        TextView title = new TextView(this);
+        title.setText("ExteraGram Pro — Панель");
+        title.setTextColor(Color.parseColor("#a773d1"));
+        title.setTextSize(18);
+        title.setTypeface(null, Typeface.BOLD);
+        title.setGravity(Gravity.CENTER);
+        title.setPadding(0, 0, 0, 40);
+        container.addView(title);
+
+        String[] labels = {
+            "📋 Посмотреть дебаг-логи",
+            "📁 Проводник файлов",
+            "🧹 Сбросить скрипты (Safe Mode)",
+            "🔄 Перезагрузить страницу"
         };
 
-        new AlertDialog.Builder(this)
-            .setTitle("ExteraGram Pro — Админка")
-            .setItems(options, (dialog, which) -> {
-                switch (which) {
-                    case 0:
-                        showLogsOverlay();
-                        break;
-                    case 1:
-                        showFilesManager();
-                        break;
-                    case 2:
-                        triggerSafeMode();
-                        break;
-                    case 3:
-                        webView.reload();
-                        break;
+        AlertDialog dialog = new AlertDialog.Builder(this)
+            .setView(container)
+            .create();
+
+        for (int i = 0; i < labels.length; i++) {
+            final int index = i;
+            Button btn = new Button(this);
+            btn.setText(labels[i]);
+            btn.setTextColor(Color.WHITE);
+            btn.setTextSize(14);
+            btn.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+            btn.setPadding(40, 20, 40, 20);
+            
+            GradientDrawable btnShape = new GradientDrawable();
+            btnShape.setColor(Color.parseColor("#2d2238")); // Цвет пузырей сообщений
+            btnShape.setCornerRadius(16);
+            btn.setBackground(btnShape);
+
+            LinearLayout.LayoutParams btnParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            );
+            btnParams.setMargins(0, 10, 0, 10);
+            btn.setLayoutParams(btnParams);
+
+            btn.setOnClickListener(v -> {
+                dialog.dismiss();
+                switch (index) {
+                    case 0: showLogsOverlay(); break;
+                    case 1: showFilesManager(); break;
+                    case 2: triggerSafeMode(); break;
+                    case 3: webView.reload(); break;
                 }
-            })
-            .setNegativeButton("Закрыть", null)
-            .show();
+            });
+            container.addView(btn);
+        }
+
+        dialog.show();
     }
 
     private void showFilesManager() {
@@ -305,7 +403,6 @@ public class MainActivity extends Activity {
             .setTitle("Файлы в контейнере")
             .setItems(items, (dialog, which) -> {
                 File selected = files[which];
-                // Даем выбор: удалить файл
                 new AlertDialog.Builder(MainActivity.this)
                     .setTitle("Управление файлом")
                     .setMessage("Удалить файл: " + selected.getName() + "?")
@@ -328,7 +425,7 @@ public class MainActivity extends Activity {
         File folder = getFilesDir();
         File[] files = folder.listFiles();
         if (files != null) {
-            for (File f : files) f.delete(); // Полная очистка
+            for (File f : files) f.delete();
         }
         stopPolling();
         loadDevDashboard();
@@ -343,6 +440,9 @@ public class MainActivity extends Activity {
                 "button, input[type=file] { background:#a773d1; color:#fff; border:none; padding:12px; border-radius:8px; width:100%; font-size:14px; cursor:pointer; margin-top:10px; box-sizing:border-box; }" +
                 "textarea { width:100%; height:120px; background:#2d2238; border:1px solid #382b46; border-radius:8px; color:#fff; padding:10px; margin-top:10px; box-sizing:border-box; resize:none; }</style></head>" +
                 "<body><h2>❄ ExteraGram Pro Dev-Panel</h2><p>Пустышка ожидает ваши файлы...</p>" +
+                "<div class='card' style='border-color: #4caf50;'><h3>Запуск:</h3>" +
+                "<p style='font-size:12px;color:#8b7d98;'>Запуск основного файла (index.html) после загрузки всех скриптов:</p>" +
+                "<button onclick='Android.launchMessenger()' style='background:#4caf50;'>🚀 Запустить index.html</button></div>" +
                 "<div class='card'><h3>Загрузить любой файл в контейнер:</h3>" +
                 "<p style='font-size:12px;color:#8b7d98;'>Вы можете загрузить index.html, style.css, bridge.js и др. по отдельности:</p>" +
                 "<input type='file' id='filePicker'>" +
@@ -367,7 +467,7 @@ public class MainActivity extends Activity {
                 "}" +
                 "</script></body></html>";
 
-        webView.loadDataWithBaseURL("file:///android_asset/", dashboardHtml, "text/html", "UTF-8", null);
+        webView.loadDataWithBaseURL("https://appassets.androidplatform.net/", dashboardHtml, "text/html", "UTF-8", null);
     }
 
     private void unpackFactoryHTML() {
@@ -411,12 +511,19 @@ public class MainActivity extends Activity {
         });
     }
 
-    /* ══════════════════════════════════════════════════════════════
-       JavaScript Interface
-       ══════════════════════════════════════════════════════════════ */
     private class WebAppInterface {
 
-        // МУЛЬТИФАЙЛОВЫЙ ЗАПИСЫВАТЕЛЬ — Сохраняет любой текстовый файл в локальный контейнер
+        @JavascriptInterface
+        public void launchMessenger() {
+            runOnUiThread(() -> {
+                if (localHtmlFile.exists()) {
+                    webView.loadUrl("https://appassets.androidplatform.net/files/index.html");
+                } else {
+                    Toast.makeText(MainActivity.this, "Файл index.html не найден! Переименуйте ваш HTML в 'index.html' при записи.", Toast.LENGTH_LONG).show();
+                }
+            });
+        }
+
         @JavascriptInterface
         public void saveFile(final String fileName, final String fileContent) {
             runOnUiThread(() -> {
@@ -424,9 +531,8 @@ public class MainActivity extends Activity {
                 try (FileWriter writer = new FileWriter(targetFile)) {
                     writer.write(fileContent);
                     Toast.makeText(MainActivity.this, "Файл " + fileName + " сохранен в контейнер!", Toast.LENGTH_SHORT).show();
-                    // Если записали index.html — перезапускаем его
                     if (fileName.equals("index.html")) {
-                        webView.loadUrl("file://" + localHtmlFile.getAbsolutePath());
+                        webView.loadUrl("https://appassets.androidplatform.net/files/index.html");
                     }
                 } catch (IOException e) {
                     Toast.makeText(MainActivity.this, "Ошибка записи файла " + fileName + ": " + e.getMessage(), Toast.LENGTH_LONG).show();
@@ -650,10 +756,18 @@ public class MainActivity extends Activity {
         webView.post(new Runnable() {
             @Override
             public void run() {
-                webView.evaluateJavascript(
-                    "window.dispatchEvent(new CustomEvent('" + event + "',{detail:" + jsonDetail + "}))",
-                    null
-                );
+                // Безопасный вызов drainQueue с проверкой типа функции, предотвращающий падение
+                if (event.equals("extgram_drain")) {
+                    webView.evaluateJavascript(
+                        "window.ExteraGram && typeof window.ExteraGram.drainQueue === 'function' && window.ExteraGram.drainQueue()",
+                        null
+                    );
+                } else {
+                    webView.evaluateJavascript(
+                        "window.dispatchEvent(new CustomEvent('" + event + "',{detail:" + jsonDetail + "}))",
+                        null
+                    );
+                }
             }
         });
     }
@@ -676,10 +790,7 @@ public class MainActivity extends Activity {
         webView.post(new Runnable() {
             @Override
             public void run() {
-                webView.evaluateJavascript(
-                    "window.ExteraGram&&window.ExteraGram.drainQueue()",
-                    null
-                );
+                notifyJS("extgram_drain", null);
             }
         });
     }
