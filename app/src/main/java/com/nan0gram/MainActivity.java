@@ -136,7 +136,6 @@ public class MainActivity extends Activity {
             .addPathHandler("/files/", new WebViewAssetLoader.InternalStoragePathHandler(this, getFilesDir()))
             .build();
 
-        // Плавающая перетаскиваемая кнопка
         if (BuildConfig.DEBUG) {
             Button devGearBtn = new Button(this);
             devGearBtn.setText("⚙");
@@ -288,7 +287,6 @@ public class MainActivity extends Activity {
     private void loadApp() {
         if (BuildConfig.DEBUG) {
             if (localHtmlFile.exists()) {
-                // Если файлы оригиналы есть, готовим рантайм-копии и запускаем
                 prepareRuntimeAndApplyPatches();
                 webView.loadUrl("https://appassets.androidplatform.net/files/runtime/index.html");
             } else {
@@ -304,7 +302,7 @@ public class MainActivity extends Activity {
     }
 
     /* ══════════════════════════════════════════════════════════════
-       СПАСАТЕЛЬНЫЙ КРУГ — ЗАЩИТА ОТ КНОПКИ НАЗАД
+       СПАСАТЕЛЬНЫЙ КРУГ — ЗАЩИТА ОТ КНОПКИ НАЗАД (ОДИН ЕДИНСТВЕННЫЙ МЕТОД)
        ══════════════════════════════════════════════════════════════ */
     @Override
     public void onBackPressed() {
@@ -395,28 +393,24 @@ public class MainActivity extends Activity {
     }
 
     /* ══════════════════════════════════════════════════════════════
-       РАНТАЙМ-ПАТЧЕР: КОПИРОВАНИЕ И ИЗМЕНЕНИЕ ФАЙЛОВ КОНТЕЙНЕРА НА ЛЕТУ
+       РАНТАЙМ-ПАТЧЕР (МЕТОДЫ ВЫНЕСЕНЫ В ОСНОВНОЙ КЛАСС MAINACTION)
        ══════════════════════════════════════════════════════════════ */
     private void prepareRuntimeAndApplyPatches() {
         File filesDir = getFilesDir();
         File runtimeDir = new File(filesDir, "runtime");
 
-        // 1. Очищаем старую папку запуска
         deleteRecursive(runtimeDir);
         runtimeDir.mkdirs();
 
-        // 2. Копируем все ваши оригиналы из files в files/runtime
         File[] originals = filesDir.listFiles();
         if (originals != null) {
             for (File f : originals) {
-                // Игнорируем вложенные папки самого рантайма и папку патчей при копировании
                 if (!f.getName().equals("runtime") && !f.getName().equals("patches")) {
                     copyRecursive(f, new File(runtimeDir, f.getName()));
                 }
             }
         }
 
-        // 3. Считываем и применяем JSON-патч к копиям в runtime
         applyPatchesToRuntime(runtimeDir);
     }
 
@@ -443,12 +437,22 @@ public class MainActivity extends Activity {
         }
     }
 
+    // ТЕПЕРЬ МЕТОД deleteRecursive РАСПОЛАГАЕТСЯ ЗДЕСЬ (ЧТОБЫ prepareRuntime МОГ ЕГО ВИДЕТЬ)
+    private boolean deleteRecursive(File f) {
+        if (f.isDirectory()) {
+            File[] children = f.listFiles();
+            if (children != null) {
+                for (File c : children) deleteRecursive(c);
+            }
+        }
+        return f.delete();
+    }
+
     private void applyPatchesToRuntime(File runtimeDir) {
         File patchFile = new File(getFilesDir(), "patches/patches.json");
         if (!patchFile.exists()) return;
 
         try {
-            // Читаем patches.json
             BufferedReader br = new BufferedReader(new InputStreamReader(new FileInputStream(patchFile), "UTF-8"));
             StringBuilder sb = new StringBuilder();
             String line;
@@ -463,9 +467,7 @@ public class MainActivity extends Activity {
                 String replaceText = patch.getString("replace");
 
                 File targetFile = new File(runtimeDir, targetFileName);
-                // Мы применяем патчи к файлам, которые лежат в корне или в подпапках runtime
                 if (targetFile.exists() && !targetFile.isDirectory()) {
-                    // Считываем текущую копию
                     BufferedReader fileReader = new BufferedReader(new InputStreamReader(new FileInputStream(targetFile), "UTF-8"));
                     StringBuilder fileContent = new StringBuilder();
                     String fileLine;
@@ -474,10 +476,8 @@ public class MainActivity extends Activity {
                     }
                     fileReader.close();
 
-                    // Осуществляем замену в рантайм-копии
                     String modified = fileContent.toString().replace(findText, replaceText);
 
-                    // Перезаписываем временную копию
                     try (FileWriter fw = new FileWriter(targetFile)) {
                         fw.write(modified);
                     }
@@ -569,16 +569,6 @@ public class MainActivity extends Activity {
         public boolean deletePath(String path) {
             File file = new File(getFilesDir(), path);
             return deleteRecursive(file);
-        }
-
-        private boolean deleteRecursive(File f) {
-            if (f.isDirectory()) {
-                File[] children = f.listFiles();
-                if (children != null) {
-                    for (File c : children) deleteRecursive(c);
-                }
-            }
-            return f.delete();
         }
 
         @JavascriptInterface
@@ -763,7 +753,4 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() { stopPolling(); webView.stopLoading(); webView.destroy(); super.onDestroy(); }
-
-    @Override
-    public void onBackPressed() { if (webView.canGoBack()) webView.goBack(); else super.onBackPressed(); }
 }
