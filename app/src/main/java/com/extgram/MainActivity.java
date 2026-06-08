@@ -5,22 +5,29 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
+import android.content.DialogInterface;
 import android.content.Intent;
+import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.WindowManager;
 import android.webkit.ConsoleMessage;
 import android.webkit.JavascriptInterface;
+import android.webkit.PermissionRequest;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.Button;
+import android.widget.FrameLayout;
 import android.widget.Toast;
 
 import org.json.JSONObject;
@@ -66,7 +73,6 @@ public class MainActivity extends Activity {
     private File localHtmlFile;
     private final List<String> systemLogs = new ArrayList<>();
 
-    // Переменные для перехвата выбора файлов
     private ValueCallback<Uri[]> uploadMessage;
     private final static int FILECHOOSER_RESULTCODE = 1;
 
@@ -86,12 +92,51 @@ public class MainActivity extends Activity {
             | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
         );
 
-        webView = new WebView(this);
-        webView.setLayoutParams(new android.view.ViewGroup.LayoutParams(
-            android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-            android.view.ViewGroup.LayoutParams.MATCH_PARENT
+        // Запрос прав на микрофон на старте (для голосовых сообщений)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(new String[]{android.Manifest.permission.RECORD_AUDIO}, 2);
+            }
+        }
+
+        // Используем FrameLayout, чтобы наложить кнопку поверх WebView
+        FrameLayout mainLayout = new FrameLayout(this);
+        mainLayout.setLayoutParams(new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT
         ));
-        setContentView(webView);
+
+        webView = new WebView(this);
+        webView.setLayoutParams(new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT
+        ));
+        mainLayout.addView(webView);
+
+        // Навешиваем маленькую круглую фиолетовую кнопку настроек (видна только в Debug/Owner билде)
+        if (BuildConfig.DEBUG) {
+            Button devGearBtn = new Button(this);
+            devGearBtn.setText("⚙");
+            devGearBtn.setTextColor(Color.WHITE);
+            devGearBtn.setTextSize(20);
+            
+            // Красивый круглый фон для кнопки
+            GradientDrawable shape = new GradientDrawable();
+            shape.setShape(GradientDrawable.OVAL);
+            shape.setColor(Color.parseColor("#80a773d1")); // Полупрозрачный фиолетовый
+            devGearBtn.setBackground(shape);
+
+            FrameLayout.LayoutParams btnParams = new FrameLayout.LayoutParams(
+                110, 110, // Размер кнопки на экране
+                Gravity.BOTTOM | Gravity.END
+            );
+            btnParams.setMargins(0, 0, 30, 180); // Смещение, чтобы не мешала кнопке отправки мессенджера
+            mainLayout.addView(devGearBtn, btnParams);
+
+            devGearBtn.setOnClickListener(v -> showAdminMenu());
+        }
+
+        setContentView(mainLayout);
 
         localHtmlFile = new File(getFilesDir(), "index.html");
 
@@ -125,7 +170,16 @@ public class MainActivity extends Activity {
                 return true;
             }
 
-            // Перехватываем системный клик по кнопке выбора файла
+            // РАЗРЕШАЕМ ДОСТУП К МИКРОФОНУ ВНУТРИ WEBVIEW
+            @Override
+            public void onPermissionRequest(final PermissionRequest request) {
+                runOnUiThread(() -> {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                        request.grant(request.getResources());
+                    }
+                });
+            }
+
             @Override
             public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> filePathCallback, WebChromeClient.FileChooserParams fileChooserParams) {
                 if (uploadMessage != null) {
@@ -139,7 +193,7 @@ public class MainActivity extends Activity {
                     startActivityForResult(intent, FILECHOOSER_RESULTCODE);
                 } catch (ActivityNotFoundException e) {
                     uploadMessage = null;
-                    Toast.makeText(MainActivity.this, "Не удалось открыть системный выбор файлов", Toast.LENGTH_LONG).show();
+                    Toast.makeText(MainActivity.this, "Не удалось открыть выбор файлов", Toast.LENGTH_LONG).show();
                     return false;
                 }
                 return true;
@@ -164,7 +218,6 @@ public class MainActivity extends Activity {
         pollingHandler = new Handler(Looper.getMainLooper());
     }
 
-    // Обрабатываем результат выбора файла в системе и возвращаем его в WebView
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         if (requestCode == FILECHOOSER_RESULTCODE) {
@@ -195,6 +248,93 @@ public class MainActivity extends Activity {
         if (systemLogs.size() > 150) systemLogs.remove(0);
     }
 
+    /* ══════════════════════════════════════════════════════════════
+       НАВЕРХНЯЯ АДМИН-ПАНЕЛЬ (Вызывается по клику на шестеренку)
+       ══════════════════════════════════════════════════════════════ */
+    private void showAdminMenu() {
+        String[] options = {
+            "Посмотреть дебаг-логи", 
+            "Проводник файлов контейнера", 
+            "Сбросить скрипты (Safe Mode)", 
+            "Перезагрузить страницу"
+        };
+
+        new AlertDialog.Builder(this)
+            .setTitle("ExteraGram Pro — Админка")
+            .setItems(options, (dialog, which) -> {
+                switch (which) {
+                    case 0:
+                        showLogsOverlay();
+                        break;
+                    case 1:
+                        showFilesManager();
+                        break;
+                    case 2:
+                        triggerSafeMode();
+                        break;
+                    case 3:
+                        webView.reload();
+                        break;
+                }
+            })
+            .setNegativeButton("Закрыть", null)
+            .show();
+    }
+
+    private void showFilesManager() {
+        File folder = getFilesDir();
+        File[] files = folder.listFiles();
+        List<String> fileNames = new ArrayList<>();
+        if (files != null) {
+            for (File f : files) {
+                fileNames.add(f.getName() + " (" + (f.length() / 1024) + " KB)");
+            }
+        }
+
+        if (fileNames.isEmpty()) {
+            new AlertDialog.Builder(this)
+                .setTitle("Файловый менеджер")
+                .setMessage("Внутри контейнера пока нет загруженных файлов.")
+                .setPositiveButton("Ок", null)
+                .show();
+            return;
+        }
+
+        String[] items = fileNames.toArray(new String[0]);
+        new AlertDialog.Builder(this)
+            .setTitle("Файлы в контейнере")
+            .setItems(items, (dialog, which) -> {
+                File selected = files[which];
+                // Даем выбор: удалить файл
+                new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("Управление файлом")
+                    .setMessage("Удалить файл: " + selected.getName() + "?")
+                    .setPositiveButton("Да, удалить", (d, w) -> {
+                        selected.delete();
+                        Toast.makeText(MainActivity.this, "Файл удален!", Toast.LENGTH_SHORT).show();
+                        if (selected.getName().equals("index.html")) loadDevDashboard();
+                    })
+                    .setNegativeButton("Отмена", null)
+                    .show();
+            })
+            .setPositiveButton("Назад", (dialog, which) -> showAdminMenu())
+            .show();
+    }
+
+    private void triggerSafeMode() {
+        if (localHtmlFile.exists()) {
+            localHtmlFile.delete();
+        }
+        File folder = getFilesDir();
+        File[] files = folder.listFiles();
+        if (files != null) {
+            for (File f : files) f.delete(); // Полная очистка
+        }
+        stopPolling();
+        loadDevDashboard();
+        Toast.makeText(this, "Контейнер полностью очищен до заводского состояния!", Toast.LENGTH_SHORT).show();
+    }
+
     private void loadDevDashboard() {
         String dashboardHtml = "<!DOCTYPE html><html><head><meta charset='UTF-8'>" +
                 "<meta name='viewport' content='width=device-width, initial-scale=1.0'>" +
@@ -202,22 +342,28 @@ public class MainActivity extends Activity {
                 "h2 { color:#a773d1; } .card { background:#1e1525; border:1px solid #382b46; padding:20px; border-radius:12px; max-width:480px; margin:20px auto; text-align:left; }" +
                 "button, input[type=file] { background:#a773d1; color:#fff; border:none; padding:12px; border-radius:8px; width:100%; font-size:14px; cursor:pointer; margin-top:10px; box-sizing:border-box; }" +
                 "textarea { width:100%; height:120px; background:#2d2238; border:1px solid #382b46; border-radius:8px; color:#fff; padding:10px; margin-top:10px; box-sizing:border-box; resize:none; }</style></head>" +
-                "<body><h2>❄ ExteraGram Pro Dev-Panel</h2><p>Пустышка ожидает ваш код...</p>" +
-                "<div class='card'><h3>Загрузить мессенджер:</h3>" +
-                "<input type='file' id='filePicker' accept='.html'>" +
-                "<textarea id='codePaste' placeholder='Или просто вставьте HTML-код сюда...'></textarea>" +
-                "<button onclick='save()'>Запустить код</button></div>" +
+                "<body><h2>❄ ExteraGram Pro Dev-Panel</h2><p>Пустышка ожидает ваши файлы...</p>" +
+                "<div class='card'><h3>Загрузить любой файл в контейнер:</h3>" +
+                "<p style='font-size:12px;color:#8b7d98;'>Вы можете загрузить index.html, style.css, bridge.js и др. по отдельности:</p>" +
+                "<input type='file' id='filePicker'>" +
+                "<textarea id='codePaste' placeholder='Или вставьте код файла сюда...'></textarea>" +
+                "<input type='text' id='fileName' placeholder='Имя файла (например, index.html)' style='width:100%;padding:10px;background:#2d2238;color:#fff;border:1px solid #382b46;border-radius:8px;box-sizing:border-box;margin-top:10px;'>" +
+                "<button onclick='save()'>Записать файл</button></div>" +
                 "<script>" +
+                "var chosenName = '';" +
                 "document.getElementById('filePicker').onchange = function(e) {" +
                 "  var file = e.target.files[0]; if(!file) return;" +
+                "  chosenName = file.name;" +
+                "  document.getElementById('fileName').value = file.name;" +
                 "  var reader = new FileReader();" +
                 "  reader.onload = function(evt) { document.getElementById('codePaste').value = evt.target.result; };" +
                 "  reader.readAsText(file);" +
                 "};" +
                 "function save() {" +
                 "  var code = document.getElementById('codePaste').value;" +
-                "  if(!code.trim()) { alert('Код пуст!'); return; }" +
-                "  Android.saveHtml(code);" +
+                "  var name = document.getElementById('fileName').value.trim();" +
+                "  if(!code.trim() || !name) { alert('Код или имя файла пусто!'); return; }" +
+                "  Android.saveFile(name, code);" +
                 "}" +
                 "</script></body></html>";
 
@@ -244,12 +390,7 @@ public class MainActivity extends Activity {
             return true;
         }
         if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
-            if (localHtmlFile.exists()) {
-                localHtmlFile.delete();
-            }
-            stopPolling();
-            loadDevDashboard();
-            Toast.makeText(this, "Safe Mode: скрипт сброшен!", Toast.LENGTH_SHORT).show();
+            triggerSafeMode();
             return true;
         }
         return super.onKeyDown(keyCode, event);
@@ -270,19 +411,32 @@ public class MainActivity extends Activity {
         });
     }
 
+    /* ══════════════════════════════════════════════════════════════
+       JavaScript Interface
+       ══════════════════════════════════════════════════════════════ */
     private class WebAppInterface {
+
+        // МУЛЬТИФАЙЛОВЫЙ ЗАПИСЫВАТЕЛЬ — Сохраняет любой текстовый файл в локальный контейнер
+        @JavascriptInterface
+        public void saveFile(final String fileName, final String fileContent) {
+            runOnUiThread(() -> {
+                File targetFile = new File(getFilesDir(), fileName);
+                try (FileWriter writer = new FileWriter(targetFile)) {
+                    writer.write(fileContent);
+                    Toast.makeText(MainActivity.this, "Файл " + fileName + " сохранен в контейнер!", Toast.LENGTH_SHORT).show();
+                    // Если записали index.html — перезапускаем его
+                    if (fileName.equals("index.html")) {
+                        webView.loadUrl("file://" + localHtmlFile.getAbsolutePath());
+                    }
+                } catch (IOException e) {
+                    Toast.makeText(MainActivity.this, "Ошибка записи файла " + fileName + ": " + e.getMessage(), Toast.LENGTH_LONG).show();
+                }
+            });
+        }
 
         @JavascriptInterface
         public void saveHtml(final String htmlContent) {
-            runOnUiThread(() -> {
-                try (FileWriter writer = new FileWriter(localHtmlFile)) {
-                    writer.write(htmlContent);
-                    webView.loadUrl("file://" + localHtmlFile.getAbsolutePath());
-                    Toast.makeText(MainActivity.this, "Интерфейс обновлен!", Toast.LENGTH_SHORT).show();
-                } catch (IOException e) {
-                    Toast.makeText(MainActivity.this, "Ошибка записи: " + e.getMessage(), Toast.LENGTH_LONG).show();
-                }
-            });
+            saveFile("index.html", htmlContent);
         }
 
         @JavascriptInterface
