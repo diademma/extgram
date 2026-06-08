@@ -2,21 +2,32 @@ package com.extgram;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.KeyEvent;
 import android.view.View;
 import android.view.WindowManager;
+import android.webkit.ConsoleMessage;
 import android.webkit.JavascriptInterface;
+import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.Toast;
 
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
@@ -36,28 +47,25 @@ import javax.mail.search.SubjectTerm;
 
 public class MainActivity extends Activity {
 
-    /* ─── Конфигурация (устанавливается из JS через configure()) ─── */
     private volatile String senderEmail    = "";
     private volatile String appPassword    = "";
     private volatile String receiverEmail  = "";
     private volatile int    pollIntervalMs = 10000;
     private volatile String subjectPrefix  = "[TG_DATA]";
 
-    /* ─── Внутренние ─── */
     private WebView  webView;
     private Handler  pollingHandler;
     private Runnable pollingRunnable;
     private volatile boolean pollingActive = false;
 
-    /* ══════════════════════════════════════════════════════════════
-       onCreate
-       ══════════════════════════════════════════════════════════════ */
+    private File localHtmlFile;
+    private final List<String> systemLogs = new ArrayList<>();
+
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        /* Полноэкранный режим */
         getWindow().setFlags(
             WindowManager.LayoutParams.FLAG_FULLSCREEN,
             WindowManager.LayoutParams.FLAG_FULLSCREEN
@@ -69,7 +77,6 @@ public class MainActivity extends Activity {
             | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
         );
 
-        /* WebView */
         webView = new WebView(this);
         webView.setLayoutParams(new android.view.ViewGroup.LayoutParams(
             android.view.ViewGroup.LayoutParams.MATCH_PARENT,
@@ -77,24 +84,20 @@ public class MainActivity extends Activity {
         ));
         setContentView(webView);
 
-        /* Настройки WebView */
+        localHtmlFile = new File(getFilesDir(), "index.html");
+
         WebSettings ws = webView.getSettings();
         ws.setJavaScriptEnabled(true);
         ws.setDomStorageEnabled(true);
         ws.setDatabaseEnabled(true);
         ws.setCacheMode(WebSettings.LOAD_DEFAULT);
         ws.setAllowFileAccess(true);
+        ws.setAllowContentAccess(true);
         ws.setAllowFileAccessFromFileURLs(true);
         ws.setAllowUniversalAccessFromFileURLs(true);
         ws.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         ws.setMediaPlaybackRequiresUserGesture(false);
-        ws.setBuiltInZoomControls(false);
-        ws.setDisplayZoomControls(false);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            ws.setSafeBrowsingEnabled(false);
-        }
 
-        /* Ссылки открываем внутри WebView, не во внешнем браузере */
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, String url) {
@@ -103,22 +106,130 @@ public class MainActivity extends Activity {
             }
         });
 
-        /* JavaScript Bridge */
+        webView.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public boolean onConsoleMessage(ConsoleMessage consoleMessage) {
+                String log = "[" + consoleMessage.messageLevel() + "] "
+                        + consoleMessage.message() + " (строка: "
+                        + consoleMessage.lineNumber() + ")";
+                addLog(log);
+                return true;
+            }
+        });
+
         webView.addJavascriptInterface(new WebAppInterface(), "Android");
 
-        /* Загружаем index.html из assets */
-        webView.loadUrl("file:///android_asset/index.html");
+        if (BuildConfig.DEBUG) {
+            if (localHtmlFile.exists()) {
+                webView.loadUrl("file://" + localHtmlFile.getAbsolutePath());
+            } else {
+                loadDevDashboard();
+            }
+        } else {
+            if (!localHtmlFile.exists()) {
+                unpackFactoryHTML();
+            }
+            webView.loadUrl("file://" + localHtmlFile.getAbsolutePath());
+        }
 
-        /* Handler для polling (работает в главном Looper, сами задачи — в фоне) */
         pollingHandler = new Handler(Looper.getMainLooper());
     }
 
-    /* ══════════════════════════════════════════════════════════════
-       JavaScript Interface
-       ══════════════════════════════════════════════════════════════ */
+    private void addLog(String message) {
+        systemLogs.add(message);
+        if (systemLogs.size() > 150) systemLogs.remove(0);
+    }
+
+    private void loadDevDashboard() {
+        String dashboardHtml = "<!DOCTYPE html><html><head><meta charset='UTF-8'>" +
+                "<meta name='viewport' content='width=device-width, initial-scale=1.0'>" +
+                "<style>body { background:#130e19; color:#fff; font-family:sans-serif; padding:20px; text-align:center; }" +
+                "h2 { color:#a773d1; } .card { background:#1e1525; border:1px solid #382b46; padding:20px; border-radius:12px; max-width:480px; margin:20px auto; text-align:left; }" +
+                "button, input[type=file] { background:#a773d1; color:#fff; border:none; padding:12px; border-radius:8px; width:100%; font-size:14px; cursor:pointer; margin-top:10px; box-sizing:border-box; }" +
+                "textarea { width:100%; height:120px; background:#2d2238; border:1px solid #382b46; border-radius:8px; color:#fff; padding:10px; margin-top:10px; box-sizing:border-box; resize:none; }</style></head>" +
+                "<body><h2>❄ ExteraGram Pro Dev-Panel</h2><p>Пустышка ожидает ваш код...</p>" +
+                "<div class='card'><h3>Загрузить мессенджер:</h3>" +
+                "<input type='file' id='filePicker' accept='.html'>" +
+                "<textarea id='codePaste' placeholder='Или просто вставьте HTML-код сюда...'></textarea>" +
+                "<button onclick='save()'>Запустить код</button></div>" +
+                "<script>" +
+                "document.getElementById('filePicker').onchange = function(e) {" +
+                "  var file = e.target.files[0]; if(!file) return;" +
+                "  var reader = new FileReader();" +
+                "  reader.onload = function(evt) { document.getElementById('codePaste').value = evt.target.result; };" +
+                "  reader.readAsText(file);" +
+                "};" +
+                "function save() {" +
+                "  var code = document.getElementById('codePaste').value;" +
+                "  if(!code.trim()) { alert('Код пуст!'); return; }" +
+                "  Android.saveHtml(code);" +
+                "}" +
+                "</script></body></html>";
+
+        webView.loadDataWithBaseURL("file:///android_asset/", dashboardHtml, "text/html", "UTF-8", null);
+    }
+
+    private void unpackFactoryHTML() {
+        try (InputStream is = getAssets().open("index.html");
+             OutputStream os = new FileOutputStream(localHtmlFile)) {
+            byte[] buffer = new byte[1024];
+            int length;
+            while ((length = is.read(buffer)) > 0) {
+                os.write(buffer, 0, length);
+            }
+        } catch (IOException e) {
+            addLog("Ошибка распаковки заводского HTML: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public boolean onKeyDown(int keyCode, KeyEvent event) {
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
+            showLogsOverlay();
+            return true;
+        }
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+            if (localHtmlFile.exists()) {
+                localHtmlFile.delete();
+            }
+            stopPolling();
+            loadDevDashboard();
+            Toast.makeText(this, "Safe Mode: скрипт сброшен!", Toast.LENGTH_SHORT).show();
+            return true;
+        }
+        return super.onKeyDown(keyCode, event);
+    }
+
+    private void showLogsOverlay() {
+        runOnUiThread(() -> {
+            StringBuilder sb = new StringBuilder();
+            for (String log : systemLogs) {
+                sb.append(log).append("\n\n");
+            }
+            new AlertDialog.Builder(this)
+                .setTitle("Системный дебаг-лог")
+                .setMessage(sb.length() == 0 ? "Логи пусты. Работаем в штатном режиме." : sb.toString())
+                .setPositiveButton("Закрыть", null)
+                .setNeutralButton("Очистить", (dialog, which) -> systemLogs.clear())
+                .show();
+        });
+    }
+
     private class WebAppInterface {
 
-        /* ── Принимает зашифрованный JSON от JS и отправляет письмо через SMTP ── */
+        @JavascriptInterface
+        public void saveHtml(final String htmlContent) {
+            runOnUiThread(() -> {
+                try (FileWriter writer = new FileWriter(localHtmlFile)) {
+                    writer.write(htmlContent);
+                    webView.loadUrl("file://" + localHtmlFile.getAbsolutePath());
+                    Toast.makeText(MainActivity.this, "Интерфейс обновлен!", Toast.LENGTH_SHORT).show();
+                } catch (IOException e) {
+                    Toast.makeText(MainActivity.this, "Ошибка записи: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                }
+            });
+        }
+
         @JavascriptInterface
         public void sendEmail(final String encryptedPayload) {
             new Thread(new Runnable() {
@@ -148,7 +259,6 @@ public class MainActivity extends Activity {
                         msg.setFrom(new InternetAddress(user));
                         msg.addRecipient(Message.RecipientType.TO, new InternetAddress(receiverEmail));
                         msg.setSubject(subjectPrefix + " MSG");
-                        /* Первая строка тела = JSON-полезная нагрузка (сервер читает только её) */
                         msg.setText(encryptedPayload + "\r\n", "UTF-8", "plain");
 
                         Transport.send(msg);
@@ -160,7 +270,6 @@ public class MainActivity extends Activity {
             }).start();
         }
 
-        /* ── Принимает конфиг из JS (после сохранения настроек), запускает polling ── */
         @JavascriptInterface
         public void configure(final String configJson) {
             try {
@@ -175,14 +284,12 @@ public class MainActivity extends Activity {
                 return;
             }
 
-            /* Перезапускаем polling с новым интервалом */
             stopPolling();
             if (!senderEmail.isEmpty() && !appPassword.isEmpty()) {
                 startPolling();
             }
         }
 
-        /* ── Возвращает JSON с информацией об устройстве ── */
         @JavascriptInterface
         public String getDeviceInfo() {
             try {
@@ -199,9 +306,6 @@ public class MainActivity extends Activity {
         }
     }
 
-    /* ══════════════════════════════════════════════════════════════
-       IMAP Polling — Java сам опрашивает ящик и толкает данные в JS
-       ══════════════════════════════════════════════════════════════ */
     private void startPolling() {
         if (pollingActive) return;
         pollingActive = true;
@@ -224,7 +328,6 @@ public class MainActivity extends Activity {
         }
     }
 
-    /* Выполняется в фоновом потоке, по завершении вызывает JS */
     private void fetchAndPush() {
         new Thread(new Runnable() {
             @Override
@@ -246,10 +349,6 @@ public class MainActivity extends Activity {
         }).start();
     }
 
-    /* ══════════════════════════════════════════════════════════════
-       Блокирующее IMAP-получение (вызывается только из фонового потока)
-       Возвращает JSON-массив расшифровывать будет JS.
-       ══════════════════════════════════════════════════════════════ */
     private String fetchNewEmailsBlocking() {
         Store store = null;
         Folder inbox = null;
@@ -279,7 +378,6 @@ public class MainActivity extends Activity {
             inbox = store.getFolder("INBOX");
             inbox.open(Folder.READ_WRITE);
 
-            /* Ищем только непрочитанные письма с нашей темой */
             Message[] messages = inbox.search(
                 new javax.mail.search.AndTerm(
                     new FlagTerm(new Flags(Flags.Flag.SEEN), false),
@@ -293,7 +391,6 @@ public class MainActivity extends Activity {
 
             for (Message message : messages) {
                 try {
-                    /* Читаем только первую строку тела (экономия памяти/трафика) */
                     Object content = message.getContent();
                     String body;
                     if (content instanceof String) {
@@ -308,17 +405,14 @@ public class MainActivity extends Activity {
 
                     if (body == null || body.trim().isEmpty()) continue;
 
-                    /* Берём только первую строку, обрезаем Gmail-подписи */
                     String firstLine = body.split("\\r?\\n")[0].trim();
                     if (firstLine.isEmpty()) continue;
 
                     payloads.add(firstLine);
-
-                    /* Помечаем письмо как прочитанное */
                     message.setFlag(Flags.Flag.SEEN, true);
 
                 } catch (Exception e) {
-                    /* Повреждённое письмо пропускаем, не падаем */
+                    addLog("Ошибка парсинга письма: " + e.getMessage());
                 }
             }
 
@@ -327,7 +421,6 @@ public class MainActivity extends Activity {
 
             if (payloads.isEmpty()) return "[]";
 
-            /* Возвращаем JSON-массив строк (каждая — зашифрованный пакет) */
             StringBuilder sb = new StringBuilder("[");
             for (int i = 0; i < payloads.size(); i++) {
                 if (i > 0) sb.append(",");
@@ -337,18 +430,13 @@ public class MainActivity extends Activity {
             return sb.toString();
 
         } catch (Exception e) {
-            notifyJS("extgram_error", "{\"msg\":\"IMAP: " + escapeJson(e.getMessage()) + "\"}");
+            addLog("IMAP Polling Error: " + e.getMessage());
             try { if (inbox != null && inbox.isOpen()) inbox.close(false); } catch (Exception ignored) {}
             try { if (store != null && store.isConnected()) store.close(); } catch (Exception ignored) {}
             return "[]";
         }
     }
 
-    /* ══════════════════════════════════════════════════════════════
-       Вспомогательные
-       ══════════════════════════════════════════════════════════════ */
-
-    /* Отправка произвольного JS-события в WebView из любого потока */
     private void notifyJS(final String event, final String jsonDetail) {
         webView.post(new Runnable() {
             @Override
@@ -366,7 +454,6 @@ public class MainActivity extends Activity {
         return s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r");
     }
 
-    /* ── Lifecycle ── */
     @Override
     protected void onPause() {
         super.onPause();
@@ -377,7 +464,6 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         webView.onResume();
-        /* При возврате дренируем офлайн-очередь */
         webView.post(new Runnable() {
             @Override
             public void run() {
