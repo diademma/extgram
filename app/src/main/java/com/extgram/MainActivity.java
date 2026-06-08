@@ -5,11 +5,8 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
-import android.content.ClipboardManager;
-import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
-import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Build;
@@ -32,16 +29,12 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Button;
-import android.widget.EditText;
 import android.widget.FrameLayout;
-import android.widget.HorizontalScrollView;
-import android.widget.LinearLayout;
-import android.widget.ScrollView;
-import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.webkit.WebViewAssetLoader;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
@@ -108,6 +101,15 @@ public class MainActivity extends Activity {
             | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
         );
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(new String[]{
+                    android.Manifest.permission.RECORD_AUDIO, 
+                    android.Manifest.permission.MODIFY_AUDIO_SETTINGS
+                }, 2);
+            }
+        }
+
         mainLayout = new FrameLayout(this);
         mainLayout.setLayoutParams(new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
@@ -126,6 +128,7 @@ public class MainActivity extends Activity {
             .addPathHandler("/files/", new WebViewAssetLoader.InternalStoragePathHandler(this, getFilesDir()))
             .build();
 
+        // Плавающая кнопка для ручного управления (Шестеренка)
         if (BuildConfig.DEBUG) {
             Button devGearBtn = new Button(this);
             devGearBtn.setText("⚙");
@@ -134,21 +137,23 @@ public class MainActivity extends Activity {
             
             GradientDrawable shape = new GradientDrawable();
             shape.setShape(GradientDrawable.OVAL);
-            shape.setColor(Color.parseColor("#a0a773d1"));
+            shape.setColor(Color.parseColor("#90a773d1"));
             devGearBtn.setBackground(shape);
 
             int screenWidth = getResources().getDisplayMetrics().widthPixels;
             int screenHeight = getResources().getDisplayMetrics().heightPixels;
 
-            FrameLayout.LayoutParams btnParams = new FrameLayout.LayoutParams(120, 120);
+            FrameLayout.LayoutParams btnParams = new FrameLayout.LayoutParams(110, 110);
             btnParams.gravity = Gravity.TOP | Gravity.START;
-            btnParams.leftMargin = screenWidth - 150;
-            btnParams.topMargin = screenHeight - 300;
+            btnParams.leftMargin = screenWidth - 140;
+            btnParams.topMargin = screenHeight - 240;
             mainLayout.addView(devGearBtn, btnParams);
 
             devGearBtn.setOnTouchListener(new View.OnTouchListener() {
-                private int initialX, initialY;
-                private float initialTouchX, initialTouchY;
+                private int initialX;
+                private int initialY;
+                private float initialTouchX;
+                private float initialTouchY;
                 private boolean isDragging = false;
 
                 @Override
@@ -176,8 +181,11 @@ public class MainActivity extends Activity {
                             }
                             return true;
                         case MotionEvent.ACTION_UP:
-                            devGearBtn.setAlpha(0.6f);
-                            if (!isDragging) showAdminMenu();
+                            devGearBtn.setAlpha(0.7f);
+                            if (!isDragging) {
+                                // Нажатие открывает веб-дашборд из ресурсов
+                                loadDevDashboard();
+                            }
                             return true;
                     }
                     return false;
@@ -206,6 +214,7 @@ public class MainActivity extends Activity {
             public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
                 return assetLoader.shouldInterceptRequest(request.getUrl());
             }
+
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, String url) {
                 view.loadUrl(url);
@@ -215,8 +224,11 @@ public class MainActivity extends Activity {
 
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
-            public boolean onConsoleMessage(ConsoleMessage cm) {
-                addLog("[" + cm.messageLevel() + "] " + cm.message() + " (line " + cm.lineNumber() + ")");
+            public boolean onConsoleMessage(ConsoleMessage consoleMessage) {
+                String log = "[" + consoleMessage.messageLevel() + "] "
+                        + consoleMessage.message() + " (строка: "
+                        + consoleMessage.lineNumber() + ")";
+                addLog(log);
                 return true;
             }
 
@@ -225,9 +237,9 @@ public class MainActivity extends Activity {
                 runOnUiThread(() -> {
                     try {
                         request.grant(request.getResources());
-                        addLog("[SYS] Permission granted: " + request.getResources()[0]);
+                        addLog("[WEB_RTC] Разрешен доступ: " + request.getResources()[0]);
                     } catch (Exception e) {
-                        addLog("[SYS] Permission grant error: " + e.getMessage());
+                        addLog("[WEB_RTC] Ошибка доступа: " + e.getMessage());
                     }
                 });
             }
@@ -239,12 +251,13 @@ public class MainActivity extends Activity {
                     uploadMessage = null;
                 }
                 uploadMessage = filePathCallback;
+
                 Intent intent = fileChooserParams.createIntent();
                 try {
                     startActivityForResult(intent, FILECHOOSER_RESULTCODE);
                 } catch (ActivityNotFoundException e) {
                     uploadMessage = null;
-                    Toast.makeText(MainActivity.this, "Нет проводника", Toast.LENGTH_LONG).show();
+                    Toast.makeText(MainActivity.this, "Не удалось открыть выбор файлов", Toast.LENGTH_LONG).show();
                     return false;
                 }
                 return true;
@@ -253,21 +266,11 @@ public class MainActivity extends Activity {
 
         webView.addJavascriptInterface(new WebAppInterface(), "Android");
 
-        // Если микрофон не разрешен - запрашиваем
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                requestPermissions(new String[]{android.Manifest.permission.RECORD_AUDIO}, 2);
-            } else {
-                loadApp();
-            }
-        } else {
-            loadApp();
-        }
+        loadApp();
 
         pollingHandler = new Handler(Looper.getMainLooper());
     }
 
-    // Если юзер только что дал права на микрофон — грузим приложение, чтобы WebRTC подхватил
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         if (requestCode == 2) {
@@ -283,7 +286,9 @@ public class MainActivity extends Activity {
                 loadDevDashboard();
             }
         } else {
-            if (!localHtmlFile.exists()) unpackFactoryHTML();
+            if (!localHtmlFile.exists()) {
+                unpackFactoryHTML();
+            }
             webView.loadUrl("https://appassets.androidplatform.net/files/index.html");
         }
     }
@@ -298,9 +303,13 @@ public class MainActivity extends Activity {
                 ClipData clipData = data.getClipData();
                 if (clipData != null) {
                     results = new Uri[clipData.getItemCount()];
-                    for (int i = 0; i < clipData.getItemCount(); i++) results[i] = clipData.getItemAt(i).getUri();
+                    for (int i = 0; i < clipData.getItemCount(); i++) {
+                        results[i] = clipData.getItemAt(i).getUri();
+                    }
                 }
-                if (dataString != null) results = new Uri[]{Uri.parse(dataString)};
+                if (dataString != null) {
+                    results = new Uri[]{Uri.parse(dataString)};
+                }
             }
             uploadMessage.onReceiveValue(results);
             uploadMessage = null;
@@ -314,261 +323,8 @@ public class MainActivity extends Activity {
         if (systemLogs.size() > 300) systemLogs.remove(0);
     }
 
-    /* ══════════════════════════════════════════════════════════════
-       IDE: МЕНЮ, РЕДАКТОР КОДА, ЛОГИ
-       ══════════════════════════════════════════════════════════════ */
-    private void showAdminMenu() {
-        String[] options = {"📋 Системные логи", "📂 Проводник и Редактор", "🧹 Сбросить Safe Mode", "🔄 Обновить страницу"};
-        new AlertDialog.Builder(this).setTitle("Управление контейнером").setItems(options, (dialog, which) -> {
-            switch (which) {
-                case 0: showLogsFullscreen(); break;
-                case 1: showFileManager(); break;
-                case 2: triggerSafeMode(); break;
-                case 3: webView.reload(); break;
-            }
-        }).show();
-    }
-
-    private void showLogsFullscreen() {
-        AlertDialog.Builder builder = new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_NoActionBar_Fullscreen);
-        LinearLayout layout = new LinearLayout(this);
-        layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setBackgroundColor(Color.parseColor("#130e19"));
-
-        LinearLayout header = new LinearLayout(this);
-        header.setBackgroundColor(Color.parseColor("#1c1524"));
-        header.setPadding(30, 40, 30, 40);
-
-        TextView title = new TextView(this);
-        title.setText("Отладка (Logs)");
-        title.setTextColor(Color.WHITE);
-        title.setTextSize(20);
-        title.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-
-        Button btnCopy = new Button(this);
-        btnCopy.setText("Скопировать");
-        btnCopy.setBackgroundColor(Color.parseColor("#4caf50"));
-        btnCopy.setTextColor(Color.WHITE);
-
-        Button btnClose = new Button(this);
-        btnClose.setText("X");
-        btnClose.setBackgroundColor(Color.TRANSPARENT);
-        btnClose.setTextColor(Color.WHITE);
-
-        header.addView(title);
-        header.addView(btnCopy);
-        header.addView(btnClose);
-        layout.addView(header);
-
-        TextView logText = new TextView(this);
-        StringBuilder sb = new StringBuilder();
-        for (String log : systemLogs) sb.append(log).append("\n\n");
-        logText.setText(sb.length() == 0 ? "Логи пусты." : sb.toString());
-        logText.setTextColor(Color.parseColor("#a773d1"));
-        logText.setTypeface(Typeface.MONOSPACE);
-        logText.setPadding(20, 20, 20, 20);
-        logText.setTextIsSelectable(true); // МОЖНО ВЫДЕЛЯТЬ ТЕКСТ!
-
-        ScrollView sv = new ScrollView(this);
-        sv.addView(logText);
-        layout.addView(sv);
-
-        AlertDialog dialog = builder.setView(layout).create();
-
-        btnCopy.setOnClickListener(v -> {
-            ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-            ClipData clip = ClipData.newPlainText("logs", logText.getText().toString());
-            clipboard.setPrimaryClip(clip);
-            Toast.makeText(this, "Логи скопированы!", Toast.LENGTH_SHORT).show();
-        });
-
-        btnClose.setOnClickListener(v -> dialog.dismiss());
-        dialog.show();
-    }
-
-    private void showFileManager() {
-        AlertDialog.Builder builder = new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_NoActionBar_Fullscreen);
-        LinearLayout layout = new LinearLayout(this);
-        layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setBackgroundColor(Color.parseColor("#130e19"));
-
-        LinearLayout header = new LinearLayout(this);
-        header.setBackgroundColor(Color.parseColor("#1c1524"));
-        header.setPadding(30, 40, 30, 40);
-
-        TextView title = new TextView(this);
-        title.setText("Проводник");
-        title.setTextColor(Color.WHITE);
-        title.setTextSize(20);
-        title.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-
-        Button btnNew = new Button(this);
-        btnNew.setText("+ Файл");
-        btnNew.setBackgroundColor(Color.parseColor("#a773d1"));
-        btnNew.setTextColor(Color.WHITE);
-
-        Button btnClose = new Button(this);
-        btnClose.setText("X");
-        btnClose.setBackgroundColor(Color.TRANSPARENT);
-        btnClose.setTextColor(Color.WHITE);
-
-        header.addView(title);
-        header.addView(btnNew);
-        header.addView(btnClose);
-        layout.addView(header);
-
-        ScrollView sv = new ScrollView(this);
-        LinearLayout list = new LinearLayout(this);
-        list.setOrientation(LinearLayout.VERTICAL);
-        list.setPadding(20, 20, 20, 20);
-
-        File[] files = getFilesDir().listFiles();
-        if (files != null) {
-            for (File f : files) {
-                Button fBtn = new Button(this);
-                fBtn.setText("📄 " + f.getName() + " (" + (f.length() / 1024) + " KB)");
-                fBtn.setAllCaps(false);
-                fBtn.setTextColor(Color.WHITE);
-                fBtn.setBackgroundColor(Color.parseColor("#2d2238"));
-                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-                lp.setMargins(0, 10, 0, 10);
-                fBtn.setLayoutParams(lp);
-
-                // Открытие редактора
-                fBtn.setOnClickListener(v -> showCodeEditor(f.getName()));
-                // Долгое нажатие - удаление
-                fBtn.setOnLongClickListener(v -> {
-                    new AlertDialog.Builder(this)
-                        .setTitle("Удалить " + f.getName() + "?")
-                        .setPositiveButton("Удалить", (d, w) -> { f.delete(); showFileManager(); })
-                        .setNegativeButton("Отмена", null)
-                        .show();
-                    return true;
-                });
-                list.addView(fBtn);
-            }
-        }
-        sv.addView(list);
-        layout.addView(sv);
-
-        AlertDialog dialog = builder.setView(layout).create();
-
-        btnNew.setOnClickListener(v -> {
-            EditText input = new EditText(this);
-            input.setHint("Например: script.js");
-            input.setTextColor(Color.BLACK);
-            new AlertDialog.Builder(this)
-                .setTitle("Имя нового файла")
-                .setView(input)
-                .setPositiveButton("Создать", (d, w) -> {
-                    String name = input.getText().toString().trim();
-                    if (!name.isEmpty()) {
-                        dialog.dismiss();
-                        showCodeEditor(name);
-                    }
-                }).show();
-        });
-
-        btnClose.setOnClickListener(v -> dialog.dismiss());
-        dialog.show();
-    }
-
-    private void showCodeEditor(String fileName) {
-        File file = new File(getFilesDir(), fileName);
-        String content = "";
-        if (file.exists()) {
-            try {
-                BufferedReader br = new BufferedReader(new InputStreamReader(new FileInputStream(file)));
-                StringBuilder sb = new StringBuilder();
-                String line;
-                while ((line = br.readLine()) != null) sb.append(line).append("\n");
-                br.close();
-                content = sb.toString();
-            } catch (Exception e) { e.printStackTrace(); }
-        }
-
-        AlertDialog.Builder builder = new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_NoActionBar_Fullscreen);
-        LinearLayout layout = new LinearLayout(this);
-        layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setBackgroundColor(Color.parseColor("#130e19"));
-
-        LinearLayout header = new LinearLayout(this);
-        header.setBackgroundColor(Color.parseColor("#1c1524"));
-        header.setPadding(30, 40, 30, 40);
-
-        TextView title = new TextView(this);
-        title.setText(fileName);
-        title.setTextColor(Color.WHITE);
-        title.setTextSize(18);
-        title.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-
-        Button btnSave = new Button(this);
-        btnSave.setText("Сохранить");
-        btnSave.setBackgroundColor(Color.parseColor("#4caf50"));
-        btnSave.setTextColor(Color.WHITE);
-
-        Button btnClose = new Button(this);
-        btnClose.setText("X");
-        btnClose.setBackgroundColor(Color.TRANSPARENT);
-        btnClose.setTextColor(Color.WHITE);
-
-        header.addView(title);
-        header.addView(btnSave);
-        header.addView(btnClose);
-        layout.addView(header);
-
-        // Поле ввода кода без переноса строк, с горизонтальным скроллом
-        EditText editor = new EditText(this);
-        editor.setText(content);
-        editor.setTextColor(Color.parseColor("#e0e0e0"));
-        editor.setBackgroundColor(Color.TRANSPARENT);
-        editor.setGravity(Gravity.TOP | Gravity.START);
-        editor.setTypeface(Typeface.MONOSPACE);
-        editor.setHorizontallyScrolling(true); // Отключаем перенос строк
-
-        ScrollView sv = new ScrollView(this);
-        HorizontalScrollView hsv = new HorizontalScrollView(this);
-        hsv.addView(editor, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT));
-        sv.addView(hsv, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT));
-        layout.addView(sv);
-
-        AlertDialog dialog = builder.setView(layout).create();
-
-        btnSave.setOnClickListener(v -> {
-            try {
-                FileWriter fw = new FileWriter(file);
-                fw.write(editor.getText().toString());
-                fw.close();
-                Toast.makeText(this, "Успешно сохранено!", Toast.LENGTH_SHORT).show();
-                if (fileName.equals("index.html") || fileName.endsWith(".js") || fileName.endsWith(".css")) {
-                    webView.reload();
-                }
-            } catch (Exception e) {
-                Toast.makeText(this, "Ошибка: " + e.getMessage(), Toast.LENGTH_LONG).show();
-            }
-        });
-
-        btnClose.setOnClickListener(v -> dialog.dismiss());
-        dialog.show();
-    }
-
-    private void triggerSafeMode() {
-        File folder = getFilesDir();
-        File[] files = folder.listFiles();
-        if (files != null) for (File f : files) f.delete();
-        stopPolling();
-        loadDevDashboard();
-        Toast.makeText(this, "Safe Mode: Полная очистка!", Toast.LENGTH_SHORT).show();
-    }
-
     private void loadDevDashboard() {
-        String dashboardHtml = "<!DOCTYPE html><html><head><meta charset='UTF-8'>" +
-                "<meta name='viewport' content='width=device-width, initial-scale=1.0'>" +
-                "<style>body{background:#130e19;color:#fff;font-family:sans-serif;padding:20px;text-align:center;} h2{color:#a773d1;} " +
-                ".card{background:#1e1525;border:1px solid #382b46;padding:20px;border-radius:12px;margin:20px auto;}</style></head>" +
-                "<body><h2>❄ ExteraGram Dev</h2><p>Пустышка ожидает код...</p>" +
-                "<div class='card'><p>Нажмите <b>⚙ Шестеренку</b>, выберите <b>Проводник</b> и создайте файл <b>index.html</b>.</p></div></body></html>";
-        webView.loadDataWithBaseURL("https://appassets.androidplatform.net/", dashboardHtml, "text/html", "UTF-8", null);
+        webView.loadUrl("https://appassets.androidplatform.net/assets/dev_dashboard.html");
     }
 
     private void unpackFactoryHTML() {
@@ -576,16 +332,18 @@ public class MainActivity extends Activity {
              OutputStream os = new FileOutputStream(localHtmlFile)) {
             byte[] buffer = new byte[1024];
             int length;
-            while ((length = is.read(buffer)) > 0) os.write(buffer, 0, length);
+            while ((length = is.read(buffer)) > 0) {
+                os.write(buffer, 0, length);
+            }
         } catch (IOException e) {
-            addLog("Factory unpack error: " + e.getMessage());
+            addLog("Ошибка распаковки заводского HTML: " + e.getMessage());
         }
     }
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
-            showLogsFullscreen();
+            loadDevDashboard();
             return true;
         }
         if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
@@ -595,10 +353,140 @@ public class MainActivity extends Activity {
         return super.onKeyDown(keyCode, event);
     }
 
+    private void triggerSafeMode() {
+        File folder = getFilesDir();
+        File[] files = folder.listFiles();
+        if (files != null) {
+            for (File f : files) f.delete();
+        }
+        stopPolling();
+        loadDevDashboard();
+        Toast.makeText(this, "Safe Mode: Сброс выполнен!", Toast.LENGTH_SHORT).show();
+    }
+
     /* ══════════════════════════════════════════════════════════════
-       JavaScript Interface (Сохранено для моста)
+       JavaScript Interface (JS Мост для Файлов, Папок и Логов)
        ══════════════════════════════════════════════════════════════ */
     private class WebAppInterface {
+
+        // Получить дерево файлов в формате JSON
+        @JavascriptInterface
+        public String getFileTree() {
+            try {
+                JSONArray arr = new JSONArray();
+                traverse(getFilesDir(), arr, "");
+                return arr.toString();
+            } catch (Exception e) {
+                return "[]";
+            }
+        }
+
+        private void traverse(File dir, JSONArray arr, String relativePath) {
+            File[] files = dir.listFiles();
+            if (files != null) {
+                for (File f : files) {
+                    try {
+                        JSONObject obj = new JSONObject();
+                        String path = relativePath.isEmpty() ? f.getName() : relativePath + "/" + f.getName();
+                        obj.put("name", f.getName());
+                        obj.put("path", path);
+                        obj.put("isDirectory", f.isDirectory());
+                        obj.put("size", f.length());
+                        arr.put(obj);
+                        if (f.isDirectory()) {
+                            traverse(f, arr, path);
+                        }
+                    } catch (Exception ignored) {}
+                }
+            }
+        }
+
+        // Сохранить/Записать файл (создает подпапки автоматически)
+        @JavascriptInterface
+        public boolean saveFile(String path, String content) {
+            File file = new File(getFilesDir(), path);
+            File parent = file.getParentFile();
+            if (parent != null && !parent.exists()) {
+                parent.mkdirs();
+            }
+            try (FileWriter fw = new FileWriter(file)) {
+                fw.write(content);
+                return true;
+            } catch (IOException e) {
+                addLog("[FILES_ERR] Не удалось записать " + path + ": " + e.getMessage());
+                return false;
+            }
+        }
+
+        // Чтение файла
+        @JavascriptInterface
+        public String readFile(String path) {
+            File file = new File(getFilesDir(), path);
+            if (!file.exists() || file.isDirectory()) return "";
+            try {
+                BufferedReader br = new BufferedReader(new InputStreamReader(new FileInputStream(file), "UTF-8"));
+                StringBuilder sb = new StringBuilder();
+                String line;
+                while ((line = br.readLine()) != null) {
+                    sb.append(line).append("\\n");
+                }
+                br.close();
+                return sb.toString();
+            } catch (Exception e) {
+                return "";
+            }
+        }
+
+        // Создать папку
+        @JavascriptInterface
+        public boolean createFolder(String path) {
+            File folder = new File(getFilesDir(), path);
+            return folder.mkdirs();
+        }
+
+        // Удалить файл или папку
+        @JavascriptInterface
+        public boolean deletePath(String path) {
+            File file = new File(getFilesDir(), path);
+            return deleteRecursive(file);
+        }
+
+        private boolean deleteRecursive(File f) {
+            if (f.isDirectory()) {
+                File[] children = f.listFiles();
+                if (children != null) {
+                    for (File c : children) deleteRecursive(c);
+                }
+            }
+            return f.delete();
+        }
+
+        // Получить системные логи
+        @JavascriptInterface
+        public String getLogs() {
+            JSONArray arr = new JSONArray();
+            for (String log : systemLogs) {
+                arr.put(log);
+            }
+            return arr.toString();
+        }
+
+        @JavascriptInterface
+        public void clearLogs() {
+            systemLogs.clear();
+        }
+
+        @JavascriptInterface
+        public void launchMessenger() {
+            runOnUiThread(() -> {
+                if (localHtmlFile.exists()) {
+                    webView.loadUrl("https://appassets.androidplatform.net/files/index.html");
+                } else {
+                    Toast.makeText(MainActivity.this, "Файл index.html не найден!", Toast.LENGTH_SHORT).show();
+                }
+            });
+        }
+
         @JavascriptInterface
         public void sendEmail(final String encryptedPayload) {
             new Thread(() -> {
@@ -618,10 +506,10 @@ public class MainActivity extends Activity {
                     msg.setFrom(new InternetAddress(senderEmail));
                     msg.addRecipient(Message.RecipientType.TO, new InternetAddress(receiverEmail));
                     msg.setSubject(subjectPrefix + " MSG");
-                    msg.setText(encryptedPayload + "\r\n", "UTF-8", "plain");
+                    msg.setText(encryptedPayload + "\\r\\n", "UTF-8", "plain");
                     Transport.send(msg);
                 } catch (Exception e) {
-                    notifyJS("extgram_error", "{\"msg\":\"SMTP: " + escapeJson(e.getMessage()) + "\"}");
+                    notifyJS("extgram_error", "{\\"msg\\":\\"SMTP: " + escapeJson(e.getMessage()) + "\\"}");
                 }
             }).start();
         }
@@ -636,7 +524,7 @@ public class MainActivity extends Activity {
                 pollIntervalMs = obj.optInt("pollIntervalMs",    pollIntervalMs);
                 subjectPrefix  = obj.optString("subjectPrefix",  subjectPrefix);
             } catch (Exception e) {
-                notifyJS("extgram_error", "{\"msg\":\"configure err\"}");
+                notifyJS("extgram_error", "{\\"msg\\":\\"configure err\\"}");
                 return;
             }
             stopPolling();
@@ -744,7 +632,7 @@ public class MainActivity extends Activity {
 
     private static String escapeJson(String s) {
         if (s == null) return "null";
-        return s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r");
+        return s.replace("\\\\", "\\\\\\\\").replace("\\"", "\\\\\\"").replace("\\n", "\\\\n").replace("\\r", "\\\\r");
     }
 
     @Override
