@@ -3,16 +3,16 @@ plugins {
 }
 
 android {
-    namespace 'com.extgram'
+    namespace 'com.nan0gram'
     compileSdk 34
 
     defaultConfig {
-        applicationId "com.extgram"
+        applicationId "com.nan0gram"
         minSdk 24
         targetSdk 34
         versionCode 1
         versionName "1.0"
-        manifestPlaceholders = [appName: "ExteraGram Pro"]
+        manifestPlaceholders = [appName: "nan0gram Pro"]
     }
 
     buildFeatures {
@@ -22,12 +22,12 @@ android {
     buildTypes {
         debug {
             applicationIdSuffix ".owner"
-            manifestPlaceholders = [appName: "ExteraGram Owner"]
+            manifestPlaceholders = [appName: "nan0gram Owner"]
         }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            manifestPlaceholders = [appName: "ExteraGram Pro"]
+            manifestPlaceholders = [appName: "nan0gram Pro"]
         }
     }
 
