@@ -15,6 +15,10 @@ android {
         manifestPlaceholders = [appName: "ExteraGram Pro"]
     }
 
+    buildFeatures {
+        buildConfig true
+    }
+
     buildTypes {
         debug {
             applicationIdSuffix ".owner"
