@@ -1,7 +1,7 @@
 name: Build APK
 on:
   push:
-    branches: [ main, master ]
+    branches: [ Стабильная ]
   workflow_dispatch:
 jobs:
   build:
